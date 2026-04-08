@@ -10,6 +10,9 @@ class Disturbance:
     oxygen_delta: float = 0.0
     mixing_delta: float = 0.0
     nutrient_delta: float = 0.0
+    biomass_delta: float = 0.0
+    byproduct_delta: float = 0.0
+    feed_rate_delta: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -22,99 +25,156 @@ class BioreactorTask:
     initial_oxygen: float
     initial_mixing: float
     initial_nutrient: float
+    initial_biomass: float
+    initial_byproduct: float
     initial_stirrer: float
     initial_oxygen_input: float
-    target_oxygen: float = 0.70
-    target_mixing: float = 0.80
-    target_nutrient: float = 0.60
+    initial_feed_rate: float
+    target_oxygen: float = 0.68
+    target_mixing: float = 0.78
+    target_nutrient: float = 0.28
+    target_biomass: float = 0.72
+    max_safe_byproduct: float = 0.30
+    terminal_biomass_target: float = 0.72
+    terminal_byproduct_limit: float = 0.30
+    terminal_nutrient_range: tuple[float, float] = (0.08, 0.30)
+    terminal_oxygen_floor: float = 0.45
     oxygen_load: float = 1.0
-    viscosity: float = 1.0
+    oxygen_transfer: float = 1.0
+    viscosity_base: float = 1.0
     nutrient_use: float = 1.0
-    actuator_penalty: float = 0.02
-    foam_penalty_threshold: float = 1.65
+    growth_rate: float = 1.0
+    actuator_penalty: float = 0.015
+    foam_penalty_threshold: float = 0.65
+    shear_threshold: float = 0.72
     noise: float = 0.0
     seed: int = 7
+    feed_schedule: dict[int, float] = field(default_factory=dict)
     disturbances: dict[int, Disturbance] = field(default_factory=dict)
 
 
 TASKS: dict[str, BioreactorTask] = {
-    "batch-startup-easy": BioreactorTask(
-        task_id="batch-startup-easy",
-        name="Batch Startup Stabilization",
+    "startup-stabilization-easy": BioreactorTask(
+        task_id="startup-stabilization-easy",
+        name="Startup Stabilization",
         difficulty="easy",
         description=(
-            "Warm-started batch reactor. The agent should hold oxygen near 0.70 "
-            "and mixing near 0.80 while nutrients drift toward 0.60."
+            "Recover a fresh batch after inoculation. Hold dissolved oxygen and "
+            "mixing in the productive band while growing biomass without creating "
+            "excess byproduct."
         ),
         max_steps=50,
-        initial_oxygen=0.62,
-        initial_mixing=0.68,
-        initial_nutrient=0.72,
-        initial_stirrer=0.55,
-        initial_oxygen_input=0.55,
+        initial_oxygen=0.58,
+        initial_mixing=0.62,
+        initial_nutrient=0.82,
+        initial_biomass=0.22,
+        initial_byproduct=0.08,
+        initial_stirrer=0.52,
+        initial_oxygen_input=0.50,
+        initial_feed_rate=0.18,
         oxygen_load=0.85,
-        viscosity=0.80,
-        nutrient_use=0.80,
+        oxygen_transfer=0.95,
+        viscosity_base=0.78,
+        nutrient_use=0.82,
+        growth_rate=1.12,
         actuator_penalty=0.010,
-        noise=0.002,
+        foam_penalty_threshold=0.74,
+        shear_threshold=0.78,
+        noise=0.0015,
         seed=11,
+        target_biomass=0.54,
+        max_safe_byproduct=0.22,
+        terminal_biomass_target=0.56,
+        terminal_byproduct_limit=0.18,
+        terminal_nutrient_range=(0.10, 0.32),
+        terminal_oxygen_floor=0.50,
+        feed_schedule={18: 0.16, 34: 0.10},
     ),
-    "fed-batch-shift-medium": BioreactorTask(
-        task_id="fed-batch-shift-medium",
-        name="Fed-Batch Disturbance Recovery",
+    "fed-batch-optimization-medium": BioreactorTask(
+        task_id="fed-batch-optimization-medium",
+        name="Fed-Batch Productivity Optimization",
         difficulty="medium",
         description=(
-            "A fed-batch run starts oxygen-poor and under-mixed. Feed events and "
-            "viscosity shifts require active recovery without over-driving oxygen."
+            "A fed-batch campaign enters aggressive growth. Feed pulses increase "
+            "oxygen demand and viscosity, so the controller must protect growth "
+            "while keeping byproduct and foam under control."
         ),
         max_steps=50,
-        initial_oxygen=0.48,
-        initial_mixing=0.45,
-        initial_nutrient=0.86,
-        initial_stirrer=0.45,
-        initial_oxygen_input=0.45,
+        initial_oxygen=0.46,
+        initial_mixing=0.48,
+        initial_nutrient=0.52,
+        initial_biomass=0.34,
+        initial_byproduct=0.16,
+        initial_stirrer=0.48,
+        initial_oxygen_input=0.46,
+        initial_feed_rate=0.18,
         oxygen_load=1.12,
-        viscosity=1.10,
+        oxygen_transfer=1.00,
+        viscosity_base=0.98,
         nutrient_use=1.05,
-        actuator_penalty=0.020,
-        noise=0.004,
+        growth_rate=1.00,
+        actuator_penalty=0.018,
+        foam_penalty_threshold=0.66,
+        shear_threshold=0.74,
+        noise=0.003,
         seed=23,
+        target_biomass=0.78,
+        max_safe_byproduct=0.30,
+        terminal_biomass_target=0.80,
+        terminal_byproduct_limit=0.24,
+        terminal_nutrient_range=(0.08, 0.22),
+        terminal_oxygen_floor=0.44,
+        feed_schedule={10: 0.22, 20: 0.28, 33: 0.24, 42: 0.18},
         disturbances={
-            16: Disturbance(oxygen_delta=-0.08, nutrient_delta=0.08),
-            32: Disturbance(mixing_delta=-0.10, nutrient_delta=0.05),
+            16: Disturbance(oxygen_delta=-0.06, nutrient_delta=0.07),
+            31: Disturbance(mixing_delta=-0.08, byproduct_delta=0.05),
         },
     ),
-    "high-density-hard": BioreactorTask(
-        task_id="high-density-hard",
-        name="High-Density Fermentation",
+    "oxygen-limited-recovery-hard": BioreactorTask(
+        task_id="oxygen-limited-recovery-hard",
+        name="Oxygen-Limited High-Density Recovery",
         difficulty="hard",
         description=(
-            "High cell density increases oxygen demand and viscosity. Aggressive "
-            "actuation can create foam penalties, so the agent must balance both loops."
+            "Late-stage high-cell-density fermentation runs near oxygen limitation. "
+            "The agent must recover from disturbances, avoid shear damage, and finish "
+            "with high biomass and acceptable metabolite quality."
         ),
         max_steps=50,
-        initial_oxygen=0.42,
-        initial_mixing=0.36,
-        initial_nutrient=0.92,
-        initial_stirrer=0.40,
-        initial_oxygen_input=0.40,
-        oxygen_load=1.35,
-        viscosity=1.30,
-        nutrient_use=1.20,
-        actuator_penalty=0.035,
-        foam_penalty_threshold=1.45,
-        noise=0.006,
+        initial_oxygen=0.38,
+        initial_mixing=0.40,
+        initial_nutrient=0.44,
+        initial_biomass=0.56,
+        initial_byproduct=0.26,
+        initial_stirrer=0.44,
+        initial_oxygen_input=0.42,
+        initial_feed_rate=0.20,
+        oxygen_load=1.34,
+        oxygen_transfer=1.03,
+        viscosity_base=1.18,
+        nutrient_use=1.18,
+        growth_rate=1.05,
+        actuator_penalty=0.028,
+        foam_penalty_threshold=0.61,
+        shear_threshold=0.70,
+        noise=0.0045,
         seed=41,
+        target_biomass=0.90,
+        max_safe_byproduct=0.34,
+        terminal_biomass_target=0.88,
+        terminal_byproduct_limit=0.28,
+        terminal_nutrient_range=(0.06, 0.18),
+        terminal_oxygen_floor=0.40,
+        feed_schedule={8: 0.26, 18: 0.30, 29: 0.24, 40: 0.16},
         disturbances={
-            12: Disturbance(oxygen_delta=-0.10),
-            24: Disturbance(mixing_delta=-0.12, nutrient_delta=0.04),
-            38: Disturbance(oxygen_delta=-0.06, mixing_delta=-0.08),
+            12: Disturbance(oxygen_delta=-0.10, byproduct_delta=0.03),
+            24: Disturbance(mixing_delta=-0.10, feed_rate_delta=0.05),
+            37: Disturbance(oxygen_delta=-0.06, nutrient_delta=0.05, byproduct_delta=0.04),
         },
     ),
 }
 
 
-DEFAULT_TASK_ID = "batch-startup-easy"
+DEFAULT_TASK_ID = "startup-stabilization-easy"
 
 
 def get_task(task_id: str | None) -> BioreactorTask:

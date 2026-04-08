@@ -13,12 +13,12 @@ reward_range:
   min: 0.0
   max: 1.0
 tasks:
-  - id: batch-startup-easy
+  - id: startup-stabilization-easy
     difficulty: easy
     grader: deterministic_trajectory_score
-  - id: fed-batch-shift-medium
+  - id: fed-batch-optimization-medium
     difficulty: medium
     grader: deterministic_trajectory_score
-  - id: high-density-hard
+  - id: oxygen-limited-recovery-hard
     difficulty: hard
     grader: deterministic_trajectory_score

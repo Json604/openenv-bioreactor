@@ -32,17 +32,39 @@ def make_client() -> Any:
     return OpenAI(base_url=API_BASE_URL, api_key=api_key)
 
 
-def format_prompt(observation: BioreactorObservation) -> str:
+def format_prompt(
+    observation: BioreactorObservation,
+    previous_action: int | None,
+    previous_reward: float | None,
+    previous_state: BioreactorObservation | None,
+) -> str:
+    previous_block = ""
+    if previous_state is not None and previous_action is not None and previous_reward is not None:
+        previous_block = f"""
+
+Previous step:
+action={previous_action}
+reward={previous_reward:.3f}
+previous_oxygen={previous_state.oxygen_level:.3f}
+previous_mixing={previous_state.mixing_uniformity:.3f}
+previous_biomass={previous_state.biomass_concentration:.3f}
+previous_byproduct={previous_state.byproduct_load:.3f}"""
+
     return f"""You are controlling a real bioreactor process.
 
 Task: {observation.task_id} ({observation.difficulty})
-Goal: keep oxygen near {observation.target_oxygen:.2f}, mixing near {observation.target_mixing:.2f}, and nutrient near {observation.target_nutrient:.2f}.
+Goal: maximize biomass while keeping oxygen near {observation.target_oxygen:.2f}, mixing near {observation.target_mixing:.2f}, residual nutrient near {observation.target_nutrient:.2f}, and byproduct below {observation.max_safe_byproduct:.2f}.
+End-of-batch objective: finish with biomass >= {observation.terminal_biomass_target:.2f}, byproduct <= {observation.terminal_byproduct_limit:.2f}, nutrient in [{observation.terminal_nutrient_low:.2f}, {observation.terminal_nutrient_high:.2f}], and oxygen above {observation.terminal_oxygen_floor:.2f}.
 
 Current state:
 oxygen={observation.oxygen_level:.3f}
 mixing={observation.mixing_uniformity:.3f}
 nutrient={observation.nutrient_concentration:.3f}
+biomass={observation.biomass_concentration:.3f}
+byproduct={observation.byproduct_load:.3f}
+feed_rate={observation.feed_rate:.3f}
 step={observation.step}/{observation.max_steps}
+{previous_block}
 
 Choose one action:
 0: increase stirrer speed
@@ -50,18 +72,26 @@ Choose one action:
 2: increase oxygen input
 3: decrease oxygen input
 4: do nothing
+5: increase feed rate
+6: decrease feed rate
 
 Return only the action number."""
 
 
 def extract_action(text: str) -> int | None:
-    match = re.search(r"\b[0-4]\b", text.strip())
+    match = re.search(r"\b[0-6]\b", text.strip())
     if match is None:
         return None
     return int(match.group(0))
 
 
-def choose_action(client: Any, observation: BioreactorObservation) -> tuple[int, str | None]:
+def choose_action(
+    client: Any,
+    observation: BioreactorObservation,
+    previous_action: int | None,
+    previous_reward: float | None,
+    previous_state: BioreactorObservation | None,
+) -> tuple[int, str | None]:
     if client is None:
         if OpenAI is None:
             return 4, "ImportError:openai_package_not_installed"
@@ -70,7 +100,17 @@ def choose_action(client: Any, observation: BioreactorObservation) -> tuple[int,
     try:
         response = client.chat.completions.create(
             model=MODEL_NAME,
-            messages=[{"role": "user", "content": format_prompt(observation)}],
+            messages=[
+                {
+                    "role": "user",
+                    "content": format_prompt(
+                        observation,
+                        previous_action=previous_action,
+                        previous_reward=previous_reward,
+                        previous_state=previous_state,
+                    ),
+                }
+            ],
             temperature=0,
             max_tokens=1,
         )
@@ -95,14 +135,26 @@ def run_task(task_id: str, client: Any) -> None:
     rewards: list[float] = []
     errors: list[str] = []
     observation = env.reset(task_id=task_id)
+    previous_action: int | None = None
+    previous_reward: float | None = None
+    previous_state: BioreactorObservation | None = None
 
     print(f"[START] task={task_id} env={ENV_NAME} model={MODEL_NAME}", flush=True)
 
     try:
         while not observation.done:
-            action, error = choose_action(client, observation)
+            action, error = choose_action(
+                client,
+                observation,
+                previous_action=previous_action,
+                previous_reward=previous_reward,
+                previous_state=previous_state,
+            )
+            previous_state = observation
             observation = env.step(action)
             rewards.append(observation.reward)
+            previous_action = action
+            previous_reward = observation.reward
             if error is not None:
                 errors.append(error)
             print(

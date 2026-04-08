@@ -20,10 +20,10 @@ class BioreactorAction(Action):
     action: int = Field(
         default=4,
         ge=0,
-        le=4,
+        le=6,
         description=(
             "0=increase stirrer, 1=decrease stirrer, 2=increase oxygen, "
-            "3=decrease oxygen, 4=do nothing"
+            "3=decrease oxygen, 4=do nothing, 5=increase feed, 6=decrease feed"
         ),
     )
 
@@ -39,17 +39,34 @@ class BioreactorObservation(Observation):
     oxygen_level: float = Field(..., ge=0.0, le=1.0)
     mixing_uniformity: float = Field(..., ge=0.0, le=1.0)
     nutrient_concentration: float = Field(..., ge=0.0, le=1.0)
+    biomass_concentration: float = Field(..., ge=0.0, le=1.0)
+    byproduct_load: float = Field(..., ge=0.0, le=1.0)
+    feed_rate: float = Field(..., ge=0.0, le=1.0)
     target_oxygen: float = Field(..., ge=0.0, le=1.0)
     target_mixing: float = Field(..., ge=0.0, le=1.0)
     target_nutrient: float = Field(..., ge=0.0, le=1.0)
+    target_biomass: float = Field(..., ge=0.0, le=1.0)
+    max_safe_byproduct: float = Field(..., ge=0.0, le=1.0)
+    terminal_biomass_target: float = Field(..., ge=0.0, le=1.0)
+    terminal_byproduct_limit: float = Field(..., ge=0.0, le=1.0)
+    terminal_nutrient_low: float = Field(..., ge=0.0, le=1.0)
+    terminal_nutrient_high: float = Field(..., ge=0.0, le=1.0)
+    terminal_oxygen_floor: float = Field(..., ge=0.0, le=1.0)
     reward: float = Field(..., ge=0.0, le=1.0, description="Per-step reward in [0, 1]")
     score: float = Field(..., ge=0.0, le=1.0, description="Trajectory grader score in [0, 1]")
     done: bool = Field(..., description="Whether the episode has ended")
-    valid_actions: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4])
+    valid_actions: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4, 5, 6])
     message: str = Field(default="", description="Status or failure message")
 
     def vector(self) -> list[float]:
-        return [self.oxygen_level, self.mixing_uniformity, self.nutrient_concentration]
+        return [
+            self.oxygen_level,
+            self.mixing_uniformity,
+            self.nutrient_concentration,
+            self.biomass_concentration,
+            self.byproduct_load,
+            self.feed_rate,
+        ]
 
 
 class BioreactorReward(BaseModel):
@@ -59,7 +76,10 @@ class BioreactorReward(BaseModel):
     oxygen_score: float = Field(..., ge=0.0, le=1.0)
     mixing_score: float = Field(..., ge=0.0, le=1.0)
     nutrient_score: float = Field(..., ge=0.0, le=1.0)
-    stability_bonus: float = Field(..., ge=0.0, le=1.0)
+    production_score: float = Field(..., ge=0.0, le=1.0)
+    purity_score: float = Field(..., ge=0.0, le=1.0)
+    safety_score: float = Field(..., ge=0.0, le=1.0)
+    growth_bonus: float = Field(..., ge=0.0, le=1.0)
     penalty: float = Field(..., ge=0.0)
 
 
@@ -76,8 +96,14 @@ class BioreactorState(State):
     oxygen_level: float = Field(..., ge=0.0, le=1.0)
     mixing_uniformity: float = Field(..., ge=0.0, le=1.0)
     nutrient_concentration: float = Field(..., ge=0.0, le=1.0)
+    biomass_concentration: float = Field(..., ge=0.0, le=1.0)
+    byproduct_load: float = Field(..., ge=0.0, le=1.0)
     stirrer_speed: float = Field(..., ge=0.0, le=1.0)
     oxygen_input: float = Field(..., ge=0.0, le=1.0)
+    feed_rate: float = Field(..., ge=0.0, le=1.0)
+    foam_risk: float = Field(..., ge=0.0, le=1.0)
+    shear_damage: float = Field(..., ge=0.0, le=1.0)
+    phase_scores: dict[str, dict[str, float]] = Field(default_factory=dict)
     last_error: str | None = None
 
 

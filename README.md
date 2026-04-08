@@ -13,25 +13,33 @@ pinned: false
 Task family: `bioreactor-control`  
 Environment: `openenv-bioreactor`
 
-This environment models a simplified bioreactor control system, where an agent learns to maintain optimal oxygen and mixing levels - a core challenge in real-world fermentation and CFD systems.
+This environment models a simplified but process-realistic bioreactor control system, where an agent must protect dissolved oxygen and mixing while maximizing biomass growth and limiting byproduct formation during fermentation.
 
 ## Environment
 
-The agent controls a reactor with two hidden actuators: stirrer speed and oxygen input. The observation exposes the process variables an operator would monitor:
+The agent controls a reactor with three direct actuators: stirrer speed, oxygen input, and feed rate. This turns the benchmark from pure setpoint tracking into a production optimization problem with explicit process tradeoffs. The observation exposes the process variables an operator would monitor:
 
 ```text
-[oxygen_level, mixing_uniformity, nutrient_concentration]
+[oxygen_level, mixing_uniformity, nutrient_concentration, biomass_concentration, byproduct_load, feed_rate]
 ```
 
 Each value is clamped to `[0.0, 1.0]`. The dynamics are lightweight and deterministic under a fixed seed:
 
 ```text
-oxygen_level += 0.1 * oxygen_input - 0.05 * consumption
-mixing_uniformity += 0.1 * stirrer_speed - 0.05 * decay
-nutrient_concentration -= 0.03 * mixing_uniformity
+oxygen_level += oxygen_transfer - oxygen_demand
+mixing_uniformity += stirrer_effect - viscosity_decay - foam_drag
+nutrient_concentration += feed_rate - biomass_consumption
+biomass_concentration += growth_rate * oxygen_health * mixing_health
+byproduct_load += oxygen_stress + overfeed_penalty - mixing_cleanup
 ```
 
-Small seeded noise and task-specific disturbances make the medium and hard tasks less trivial without requiring CFD, training loops, or heavy simulation packages.
+Hidden state includes `foam_risk` and `shear_damage`. This creates real tradeoffs:
+
+- more oxygen input improves dissolved oxygen but increases foam risk and gas cost
+- more stirring improves mixing and oxygen transfer but can damage cells through shear
+- more feed can accelerate growth but also raises oxygen demand and overflow-metabolite risk
+
+The simulator stays lightweight: pure Python, short episodes, seeded noise, and no heavy numerical dependencies.
 
 ## Action Space
 
@@ -41,6 +49,8 @@ Small seeded noise and task-specific disturbances make the medium and hard tasks
 2: increase oxygen input
 3: decrease oxygen input
 4: do nothing
+5: increase feed rate
+6: decrease feed rate
 ```
 
 ## Tasks And Graders
@@ -48,9 +58,9 @@ Small seeded noise and task-specific disturbances make the medium and hard tasks
 The repo defines three tasks in `tasks.py`:
 
 ```text
-batch-startup-easy        easy    warm-started stabilization
-fed-batch-shift-medium    medium  feed and viscosity disturbance recovery
-high-density-hard         hard    high oxygen demand with foam/overdrive penalties
+startup-stabilization-easy      easy    recover startup and build clean biomass
+fed-batch-optimization-medium   medium  survive feed pulses without overflow
+oxygen-limited-recovery-hard    hard    finish a high-density run under oxygen stress
 ```
 
 Every task has a deterministic programmatic grader in `graders.py`. Per-step reward is clamped to `[0.0, 1.0]` and combines:
@@ -59,11 +69,27 @@ Every task has a deterministic programmatic grader in `graders.py`. Per-step rew
 oxygen tracking score
 mixing tracking score
 nutrient balance score
-stability bonus
+biomass production score
+byproduct purity score
+safety score
+growth bonus
 actuator and foam penalties
 ```
 
-The final trajectory score is also clamped to `[0.0, 1.0]` and combines average reward, stable-step fraction, survival length, and collapse penalty.
+The final trajectory score is also clamped to `[0.0, 1.0]` and combines average reward, final biomass achievement, time in the safe operating region, efficiency, survival length, and collapse penalty.
+
+This makes the benchmark less like simple setpoint holding and more like an actual process-control problem: the agent has to grow biomass through changing operating phases without paying for that growth through oxygen starvation, overflow metabolites, foaming, or excessive shear.
+
+Each task also has a terminal objective. A strong controller should finish the batch with:
+
+```text
+enough biomass
+low byproduct accumulation
+residual nutrient in the desired finishing window
+oxygen above a task-specific floor
+```
+
+That means the agent is judged both on how it runs the trajectory and on how well it lands the end-of-batch operating target.
 
 ## OpenEnv API
 
@@ -81,7 +107,7 @@ GET  /state
 `/reset` accepts an optional JSON body:
 
 ```json
-{"task_id": "fed-batch-shift-medium", "seed": 23}
+{"task_id": "fed-batch-optimization-medium", "seed": 23}
 ```
 
 `/step` accepts:
@@ -122,9 +148,9 @@ It uses the OpenAI client, runs all three tasks, defaults invalid model output t
 Expected output shape:
 
 ```text
-[START] task=batch-startup-easy env=openenv-bioreactor model=gpt-4.1-mini
+[START] task=startup-stabilization-easy env=openenv-bioreactor model=gpt-4.1-mini
 [STEP] step=1 action=2 reward=0.76 done=false error=null
-[END] success=true task=batch-startup-easy steps=50 score=0.71 rewards=0.76,...
+[END] success=true task=startup-stabilization-easy steps=50 score=0.71 rewards=0.76,...
 ```
 
 ## Docker

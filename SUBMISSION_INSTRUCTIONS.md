@@ -39,7 +39,7 @@ In a second terminal:
 
 ```bash
 curl -s -X POST http://localhost:8000/reset -H "Content-Type: application/json" -d '{}'
-curl -s -X POST http://localhost:8000/reset -H "Content-Type: application/json" -d '{"task_id":"fed-batch-shift-medium"}'
+curl -s -X POST http://localhost:8000/reset -H "Content-Type: application/json" -d '{"task_id":"fed-batch-optimization-medium"}'
 curl -s -X POST http://localhost:8000/step -H "Content-Type: application/json" -d '{"action":2}'
 curl -s http://localhost:8000/state
 curl -s http://localhost:8000/tasks

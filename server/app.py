@@ -78,6 +78,7 @@ def step(action: BioreactorAction) -> dict[str, object]:
             "score": observation.score,
             "task_id": observation.task_id,
             "message": observation.message,
+            "phase_scores": env.phase_scores,
         },
     )
     return _model_dump(response)
