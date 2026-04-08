@@ -1,3 +1,13 @@
+---
+title: openenv-bioreactor
+emoji: "🧪"
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # Bioreactor Control RL Environment
 
 Task family: `bioreactor-control`  
