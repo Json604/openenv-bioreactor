@@ -18,6 +18,7 @@ from tasks import TASKS
 
 ENV_NAME = "openenv-bioreactor"
 
+LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
 API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4.1-mini")
 HF_TOKEN = os.getenv("HF_TOKEN")
@@ -85,6 +86,18 @@ def extract_action(text: str) -> int | None:
     return int(match.group(0))
 
 
+def action_to_str(action: int) -> str:
+    return {
+        0: "increase_stirrer_speed",
+        1: "decrease_stirrer_speed",
+        2: "increase_oxygen_input",
+        3: "decrease_oxygen_input",
+        4: "do_nothing",
+        5: "increase_feed_rate",
+        6: "decrease_feed_rate",
+    }.get(action, "do_nothing")
+
+
 def choose_action(
     client: Any,
     observation: BioreactorObservation,
@@ -123,13 +136,6 @@ def choose_action(
         return 4, f"{type(exc).__name__}:{exc}"
 
 
-def safe_error(error: str | None) -> str:
-    if error is None:
-        return "null"
-    safe = re.sub(r"[^A-Za-z0-9_.:-]+", "_", error.strip())[:180]
-    return safe or "unknown_error"
-
-
 def run_task(task_id: str, client: Any) -> None:
     env = BioreactorEnv(task_id=task_id)
     rewards: list[float] = []
@@ -157,27 +163,27 @@ def run_task(task_id: str, client: Any) -> None:
             previous_reward = observation.reward
             if error is not None:
                 errors.append(error)
+            step_error = env.last_error or error
             print(
                 "[STEP] "
                 f"step={len(rewards)} "
-                f"action={action} "
-                f"reward={observation.reward:.3f} "
+                f"action={action_to_str(action)} "
+                f"reward={observation.reward:.2f} "
                 f"done={str(observation.done).lower()} "
-                f"error={safe_error(error)}",
+                f"error={step_error if step_error is not None else 'null'}",
                 flush=True,
             )
     except Exception as exc:
         errors.append(f"{type(exc).__name__}:{exc}")
     finally:
         env.close()
-        rewards_text = ",".join(f"{reward:.3f}" for reward in rewards)
+        rewards_text = ",".join(f"{reward:.2f}" for reward in rewards)
         success = not errors and observation.done and len(rewards) == env.task.max_steps
         print(
             "[END] "
             f"success={str(success).lower()} "
-            f"task={task_id} "
             f"steps={len(rewards)} "
-            f"score={env.score:.3f} "
+            f"score={env.score:.2f} "
             f"rewards={rewards_text}",
             flush=True,
         )
