@@ -1,0 +1,24 @@
+name: openenv-bioreactor
+version: "0.1.0"
+description: "OpenEnv environment for RL control of bioreactor oxygen, mixing, and nutrient stability."
+action: BioreactorAction
+observation: BioreactorObservation
+reward: BioreactorReward
+server: server.app:app
+tags:
+  - openenv
+  - bioreactor
+  - process-control
+reward_range:
+  min: 0.0
+  max: 1.0
+tasks:
+  - id: batch-startup-easy
+    difficulty: easy
+    grader: deterministic_trajectory_score
+  - id: fed-batch-shift-medium
+    difficulty: medium
+    grader: deterministic_trajectory_score
+  - id: high-density-hard
+    difficulty: hard
+    grader: deterministic_trajectory_score
