@@ -134,9 +134,11 @@ class Plant:
         else:
             new_state = sol.y[:, -1]
 
-        # Numerical floor matching MATLAB indpensim.m line ~230
-        self.state = np.maximum(new_state, 1e-3)
-        # DO2 has explicit MATLAB clamp
+        # Numerical floor matching MATLAB indpensim.m: ONLY non-positive values
+        # get bumped to 1e-3; positive small values (e.g. H+ ~ 1e-7) are kept.
+        new_state = np.where(new_state <= 0.0, 1e-3, new_state)
+        self.state = new_state
+        # DO2 has explicit MATLAB clamp: if <2, set to 1
         if self.state[1] < 2.0:
             self.state[1] = 1.0
 
