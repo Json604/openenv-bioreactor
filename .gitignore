@@ -1,5 +1,23 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
 .venv/
 .uv-cache/
-__pycache__/
-*.pyc
+.env
+checkpoints/
+results/*.png
+results/*.csv
+results/*.json
+wandb/
+.ipynb_checkpoints/
+*.npy
 .DS_Store
+
+# IndPenSim binary outputs (large; not needed for the Python port)
+IndPenSim/*.mat
+IndPenSim/output_*/IndPenSim_V2_export_V7
+IndPenSim/output_2/
+
+# Round 1 holdover docs (not part of Round 2)
+hack_instructions.md
