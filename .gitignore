@@ -21,3 +21,6 @@ IndPenSim/output_2/
 
 # Round 1 holdover docs (not part of Round 2)
 hack_instructions.md
+
+# HF rejects binaries here:
+IndPenSim/*.pdf
