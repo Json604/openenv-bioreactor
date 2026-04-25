@@ -151,7 +151,7 @@ docker run --rm -p 8000:7860 bioperator-env
 
 [`notebooks/03_train_grpo.ipynb`](notebooks/03_train_grpo.ipynb) is a self-contained Colab notebook that:
 1. Pulls this repo + installs Unsloth + TRL
-2. Builds a 256-prompt GRPO dataset from the env
+2. Builds a 64-prompt GRPO dataset from the env
 3. Loads Qwen 2.5 3B Instruct in 4-bit with LoRA(rank=16)
 4. Trains 200 GRPO steps and plots the reward curve
 5. Saves the LoRA adapter
@@ -178,12 +178,12 @@ scripts/                run_baselines.py, generate_plots.py, calibrate_against_m
 docs/                   spec, plan, calibration report + plot
 results/                baseline CSVs + 9 plots
 IndPenSim/              MATLAB source (used only to generate output_5/ reference)
-tests/                  ~115 tests, all green
+tests/                  107 tests, all green
 ```
 
 ## Engineering quality
 
-- **115/115 tests passing** (`pytest tests/`).
+- **107/107 tests passing** (`pytest tests/`).
 - **Calibration tested** against MATLAB reference on every commit.
 - **Anti-cheat by construction**: agent never receives the 33-vector ODE state; pH/T PIDs are inaccessible; all action values clipped to literal sets before integration; reward components logged independently so single-signal exploits show up immediately.
 
@@ -199,7 +199,7 @@ tests/                  ~115 tests, all green
 - **Implementation plan:** [`docs/superpowers/plans/2026-04-26-bioperatorenv.md`](docs/superpowers/plans/2026-04-26-bioperatorenv.md)
 - **Calibration report:** [`docs/calibration/calibration_report.md`](docs/calibration/calibration_report.md)
 - **Original simulator paper:** Goldrick et al., *J. Biotech* 2015. [DOI: 10.1016/j.jbiotec.2014.10.029](https://doi.org/10.1016/j.jbiotec.2014.10.029)
-- **HF Space:** *(populate with the HF Space URL after first push)*
+- **HF Space (live):** [`Json604/openenv-bioreactor`](https://huggingface.co/spaces/Json604/openenv-bioreactor) — direct API at `https://Json604-openenv-bioreactor.hf.space`
 - **Training W&B run:** *(populate after the first GRPO run on Colab)*
 - **2-min video:** *(populate after recording)*
 
