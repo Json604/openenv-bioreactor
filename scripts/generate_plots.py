@@ -31,46 +31,119 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 RESULTS = REPO_ROOT / "results"
 
 
+_AGENT_ORDER = (
+    "random", "fixed_recipe", "rule_based",
+    "untrained_qwen", "claude_zero_shot", "trained_qwen",
+)
+_AGENT_COLORS = {
+    "random":           "#7570b3",
+    "fixed_recipe":     "#a6cee3",
+    "rule_based":       "#2b8cbe",
+    "untrained_qwen":   "#e34a33",
+    "claude_zero_shot": "#fdae61",
+    "trained_qwen":     "#31a354",
+}
+
+
+def _load_all_baseline_csvs(task_id: str = "do-recovery-medium") -> "pd.DataFrame":
+    """Auto-discover any `baseline_<agent>.csv` in results/ and concatenate."""
+    rows = []
+    for path in sorted(RESULTS.glob("baseline_*.csv")):
+        agent = path.stem.replace("baseline_", "")
+        try:
+            df = pd.read_csv(path)
+        except Exception as e:
+            print(f"  [skip] {path}: {e}")
+            continue
+        if "task_id" in df.columns:
+            df = df[df["task_id"] == task_id]
+        if df.empty:
+            continue
+        df = df.copy()
+        df["agent"] = agent
+        rows.append(df)
+    if not rows:
+        return pd.DataFrame()
+    return pd.concat(rows, ignore_index=True)
+
+
 def baseline_bar_chart() -> None:
     """Mean reward + mean safety violations per agent on do-recovery-medium."""
-    rows = []
-    for agent in ("random", "fixed_recipe", "rule_based"):
-        path = RESULTS / f"baseline_{agent}.csv"
-        if not path.exists():
-            print(f"  [skip] {path} missing — run scripts/run_baselines.py first")
-            continue
-        df = pd.read_csv(path)
-        df = df[df["task_id"] == "do-recovery-medium"]
-        rows.append({
-            "agent": agent,
-            "mean_reward": df["total_reward"].mean(),
-            "std_reward": df["total_reward"].std(),
-            "mean_safety": df["safety_violations"].mean(),
-            "n": len(df),
-        })
-
-    if not rows:
+    df = _load_all_baseline_csvs()
+    if df.empty:
         print("  no baseline CSVs found; skipping bar chart")
         return
 
-    rdf = pd.DataFrame(rows)
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4.5))
+    summary = (df.groupby("agent")
+                  .agg(mean_reward=("total_reward", "mean"),
+                       std_reward=("total_reward", "std"),
+                       mean_safety=("safety_violations", "mean"),
+                       n=("seed", "count"))
+                  .reset_index())
+    # Stable ordering: known agents first (in canonical order), unknown after.
+    summary["sort_key"] = summary["agent"].apply(
+        lambda a: _AGENT_ORDER.index(a) if a in _AGENT_ORDER else len(_AGENT_ORDER))
+    summary = summary.sort_values("sort_key").drop(columns="sort_key")
 
-    axes[0].bar(rdf["agent"], rdf["mean_reward"],
-                yerr=rdf["std_reward"], capsize=5, color="#2b8cbe")
+    colors = [_AGENT_COLORS.get(a, "#999999") for a in summary["agent"]]
+
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4.5))
+    axes[0].bar(summary["agent"], summary["mean_reward"],
+                yerr=summary["std_reward"], capsize=5, color=colors)
     axes[0].set_title("Mean episode reward (do-recovery-medium)")
     axes[0].set_ylabel("Sum of per-step rewards")
+    axes[0].tick_params(axis="x", labelrotation=20)
     axes[0].grid(alpha=0.3, axis="y")
 
-    axes[1].bar(rdf["agent"], rdf["mean_safety"], color="#e34a33")
+    axes[1].bar(summary["agent"], summary["mean_safety"], color=colors)
     axes[1].set_title("Mean safety violations per episode")
     axes[1].set_ylabel("count")
+    axes[1].tick_params(axis="x", labelrotation=20)
     axes[1].grid(alpha=0.3, axis="y")
 
-    fig.suptitle(f"BioOperatorEnv baselines (n={rdf['n'].iloc[0]} seeds each)")
+    fig.suptitle(f"BioOperatorEnv baselines (n={int(summary['n'].iloc[0])} seeds each)")
     fig.tight_layout()
     out = RESULTS / "baseline_comparison_bar.png"
     fig.savefig(out, dpi=120, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  wrote {out}")
+
+
+def headline_metric_chart() -> None:
+    """The headline plot: % of episode steps where DO stayed at or above the
+    safety floor, per agent. Requires the new `do_above_floor_pct` column
+    (re-run scripts/run_baselines.py to regenerate older CSVs)."""
+    df = _load_all_baseline_csvs()
+    if df.empty or "do_above_floor_pct" not in df.columns:
+        print("  no baseline CSVs with do_above_floor_pct; skipping headline chart")
+        return
+
+    summary = (df.groupby("agent")
+                  .agg(mean_pct=("do_above_floor_pct", "mean"),
+                       std_pct=("do_above_floor_pct", "std"),
+                       n=("seed", "count"))
+                  .reset_index())
+    summary["sort_key"] = summary["agent"].apply(
+        lambda a: _AGENT_ORDER.index(a) if a in _AGENT_ORDER else len(_AGENT_ORDER))
+    summary = summary.sort_values("sort_key").drop(columns="sort_key")
+    colors = [_AGENT_COLORS.get(a, "#999999") for a in summary["agent"]]
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+    ax.bar(summary["agent"], summary["mean_pct"],
+            yerr=summary["std_pct"], capsize=5, color=colors)
+    ax.set_ylabel("% of decision steps with DO ≥ safe floor (20%)")
+    ax.set_title(f"Dissolved-oxygen safety adherence on do-recovery-medium "
+                  f"(n={int(summary['n'].iloc[0])} seeds each)")
+    ax.tick_params(axis="x", labelrotation=20)
+    ax.set_ylim(0, 105)
+    ax.grid(alpha=0.3, axis="y")
+    for i, (_, row) in enumerate(summary.iterrows()):
+        ax.text(i, row["mean_pct"] + 1.5, f"{row['mean_pct']:.0f}%",
+                 ha="center", fontsize=9)
+    fig.tight_layout()
+    out = RESULTS / "headline_do_safety.png"
+    fig.savefig(out, dpi=120, bbox_inches="tight")
+    plt.close(fig)
     print(f"  wrote {out}")
 
 
@@ -187,6 +260,7 @@ def main() -> None:
     RESULTS.mkdir(exist_ok=True)
     print("Generating BioOperatorEnv plots...")
     baseline_bar_chart()
+    headline_metric_chart()
     trajectory_comparison()
     per_component_rewards()
     print("Done. See results/*.png")

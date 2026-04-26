@@ -18,11 +18,13 @@ class TrainedQwenAgent(UntrainedQwenAgent):
     def __init__(self,
                  adapter_path: Optional[str] = None,
                  model_id: str = "Qwen/Qwen2.5-3B-Instruct",
+                 allow_no_adapter: bool = False,
                  **kwargs):
         super().__init__(model_id=model_id, **kwargs)
         self.adapter_path = adapter_path or os.environ.get(
             "BIOPERATOR_LORA", "checkpoints/qwen3-bioperator-lora"
         )
+        self.allow_no_adapter = allow_no_adapter
 
     def _ensure_loaded(self):
         if self._model is not None:
@@ -34,11 +36,20 @@ class TrainedQwenAgent(UntrainedQwenAgent):
         base = AutoModelForCausalLM.from_pretrained(
             self.model_id, torch_dtype="auto", device_map=self.device,
         )
-        adapter_dir = Path(self.adapter_path)
-        if adapter_dir.exists():
-            self._model = PeftModel.from_pretrained(base, str(adapter_dir))
+        adapter = self.adapter_path
+        # Hub repo id like "Json604/qwen3b-bioperator-lora" -> let PEFT fetch it.
+        is_hub_id = isinstance(adapter, str) and "/" in adapter and not Path(adapter).exists()
+        if is_hub_id:
+            self._model = PeftModel.from_pretrained(base, adapter)
+        elif Path(adapter).exists():
+            self._model = PeftModel.from_pretrained(base, str(adapter))
         else:
-            # Fall back to base model if adapter not present (allows the demo
-            # notebook to run pre-training and post-training side-by-side).
+            if not self.allow_no_adapter:
+                raise FileNotFoundError(
+                    f"TrainedQwenAgent: adapter not found at '{adapter}'. "
+                    f"Set BIOPERATOR_LORA env var to a local path or HF Hub repo id "
+                    f"(e.g. 'Json604/qwen3b-bioperator-lora'), or pass "
+                    f"allow_no_adapter=True to silently fall back to the base model."
+                )
             self._model = base
         self._model.eval()

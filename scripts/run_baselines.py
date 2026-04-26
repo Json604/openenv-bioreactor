@@ -55,12 +55,26 @@ def _maybe_register_heavy_agents() -> None:
 def run_one_episode(agent, task_id: str, seed: int) -> dict:
     env = BioOperatorEnv(task_id=task_id, seed=seed)
     obs = env.reset()
+    do_min_safe = obs.setpoints_or_limits.get("DO_min_safe_pct", 20.0)
+    s_min = obs.setpoints_or_limits.get("substrate_min_g_L", 0.05)
+    s_max = obs.setpoints_or_limits.get("substrate_max_g_L", 0.30)
     done = False
     total = 0.0
+    do_steps_above_floor = 0
+    sub_steps_in_band = 0
+    n_steps = 0
+    format_valid_count = 0
     while not done:
         action = agent.act(obs)
         obs, r, done, info = env.step(action)
         total += r
+        n_steps += 1
+        if obs.measurements["dissolved_oxygen_pct"] >= do_min_safe:
+            do_steps_above_floor += 1
+        if s_min <= obs.measurements["substrate_g_L"] <= s_max:
+            sub_steps_in_band += 1
+        if info.get("format_valid", False):
+            format_valid_count += 1
     state = env.state()
     return {
         "agent": agent.name,
@@ -70,6 +84,9 @@ def run_one_episode(agent, task_id: str, seed: int) -> dict:
         "steps": state.step_count,
         "success": int(info.get("success", False)),
         "safety_violations": state.safety_violations,
+        "do_above_floor_pct": (do_steps_above_floor / n_steps * 100.0) if n_steps else 0.0,
+        "substrate_in_band_pct": (sub_steps_in_band / n_steps * 100.0) if n_steps else 0.0,
+        "format_valid_pct": (format_valid_count / n_steps * 100.0) if n_steps else 0.0,
         "final_DO_pct": obs.measurements["dissolved_oxygen_pct"],
         "final_S_g_L": obs.measurements["substrate_g_L"],
         "final_P_g_L": float(state.ode_state[3]),

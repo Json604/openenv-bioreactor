@@ -47,7 +47,9 @@ adapter to a Hugging Face model repo so the demo notebook can load it.
 """
 from __future__ import annotations
 import argparse
+import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -55,6 +57,7 @@ from pathlib import Path
 
 REPO_URL = "https://github.com/Json604/openenv-bioreactor.git"
 REPO_DIR = Path("/tmp/openenv-bioreactor")
+ARTIFACTS_DIR = Path("/tmp/bioperator-artifacts")
 
 
 def _ensure_repo() -> None:
@@ -63,6 +66,210 @@ def _ensure_repo() -> None:
         return
     print(f"[run_grpo_job] cloning {REPO_URL} -> {REPO_DIR}", flush=True)
     subprocess.run(["git", "clone", "--depth", "1", REPO_URL, str(REPO_DIR)], check=True)
+
+
+# ---------- end-of-training eval helpers ----------
+
+_JSON_RE = re.compile(r"\{[^{}]*\}", flags=re.DOTALL)
+
+
+def _generate_action_text(model, tokenizer, prompt: str,
+                           max_new_tokens: int = 96,
+                           temperature: float = 0.5) -> str:
+    """Single greedy-ish generation. Used for eval, not training."""
+    import torch  # type: ignore
+    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+    with torch.no_grad():
+        out = model.generate(
+            **inputs,
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            do_sample=True,
+            pad_token_id=tokenizer.eos_token_id,
+        )
+    return tokenizer.decode(out[0][inputs["input_ids"].shape[1]:],
+                             skip_special_tokens=True)
+
+
+def _parse_first_json(text: str):
+    m = _JSON_RE.search(text)
+    if not m:
+        return None
+    try:
+        return json.loads(m.group(0))
+    except Exception:
+        return None
+
+
+def _rollout_episode(model, tokenizer, task_id: str, seed: int,
+                     eval_temperature: float = 0.5) -> dict:
+    """Run one full episode using `model` as the policy. Returns metrics + DO trajectory."""
+    from bioperator_env.env import BioOperatorEnv  # type: ignore
+    from bioperator_env.prompt import build_prompt  # type: ignore
+    env = BioOperatorEnv(task_id=task_id, seed=seed)
+    obs = env.reset()
+    do_min_safe = obs.setpoints_or_limits.get("DO_min_safe_pct", 20.0)
+    do_traj = [obs.measurements["dissolved_oxygen_pct"]]
+    rewards = []
+    n_above = 0
+    n_format_valid = 0
+    n_steps = 0
+    done = False
+    while not done:
+        prompt = build_prompt(obs)
+        text = _generate_action_text(model, tokenizer, prompt,
+                                      temperature=eval_temperature)
+        parsed = _parse_first_json(text) or {
+            "feed_delta_L_h": 0, "aeration_delta_vvm": 0.0,
+            "agitation_delta_rpm": 0, "reason": "fallback",
+        }
+        obs, r, done, info = env.step(parsed)
+        rewards.append(r)
+        do_traj.append(obs.measurements["dissolved_oxygen_pct"])
+        n_steps += 1
+        if obs.measurements["dissolved_oxygen_pct"] >= do_min_safe:
+            n_above += 1
+        if info.get("format_valid", False):
+            n_format_valid += 1
+    return {
+        "task_id": task_id,
+        "seed": seed,
+        "do_traj": do_traj,
+        "total_reward": float(sum(rewards)),
+        "do_above_floor_pct": (n_above / max(n_steps, 1)) * 100.0,
+        "format_valid_pct": (n_format_valid / max(n_steps, 1)) * 100.0,
+        "safety_violations": int(env.safety_violations),
+        "n_steps": n_steps,
+    }
+
+
+def _run_inline_eval(model, tokenizer, task_id: str,
+                     seeds: list[int],
+                     output_dir: Path,
+                     eval_temperature: float = 0.5) -> dict:
+    """After training: roll out trained (adapter active) vs untrained (adapter
+    disabled) on the same seeds. Saves before_after_demo.png and
+    eval_metrics.json. Returns the metrics dict."""
+    import matplotlib  # type: ignore
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt  # type: ignore
+    import numpy as np  # type: ignore
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    model.eval()
+
+    trained_runs, untrained_runs = [], []
+    for seed in seeds:
+        print(f"[eval] trained seed={seed} ...", flush=True)
+        trained_runs.append(_rollout_episode(model, tokenizer, task_id, seed,
+                                              eval_temperature))
+        print(f"[eval] untrained (adapter disabled) seed={seed} ...", flush=True)
+        try:
+            ctx = model.disable_adapter()
+        except AttributeError:
+            # Fallback: PeftModel must expose disable_adapter; if not, skip.
+            print("[eval] disable_adapter() unavailable; skipping untrained eval")
+            return {"trained_runs": trained_runs, "untrained_runs": []}
+        with ctx:
+            untrained_runs.append(_rollout_episode(model, tokenizer, task_id,
+                                                    seed, eval_temperature))
+
+    def _avg(rs, k):
+        return float(np.mean([r[k] for r in rs])) if rs else None
+
+    metrics = {
+        "task_id": task_id,
+        "seeds": list(seeds),
+        "trained": {
+            "do_above_floor_pct_mean": _avg(trained_runs, "do_above_floor_pct"),
+            "total_reward_mean":      _avg(trained_runs, "total_reward"),
+            "format_valid_pct_mean":  _avg(trained_runs, "format_valid_pct"),
+            "safety_violations_mean": _avg(trained_runs, "safety_violations"),
+            "per_seed": [{k: v for k, v in r.items() if k != "do_traj"}
+                         for r in trained_runs],
+        },
+        "untrained": {
+            "do_above_floor_pct_mean": _avg(untrained_runs, "do_above_floor_pct"),
+            "total_reward_mean":      _avg(untrained_runs, "total_reward"),
+            "format_valid_pct_mean":  _avg(untrained_runs, "format_valid_pct"),
+            "safety_violations_mean": _avg(untrained_runs, "safety_violations"),
+            "per_seed": [{k: v for k, v in r.items() if k != "do_traj"}
+                         for r in untrained_runs],
+        },
+    }
+    # Improvement deltas (only meaningful if both arms ran)
+    if untrained_runs:
+        u = metrics["untrained"]["do_above_floor_pct_mean"]
+        t = metrics["trained"]["do_above_floor_pct_mean"]
+        if u is not None and t is not None:
+            metrics["delta"] = {
+                "do_above_floor_pct_abs": t - u,
+                "do_above_floor_pct_rel": ((t - u) / u * 100.0) if u > 0 else None,
+            }
+
+    # Plot DO trajectories: one line per seed per arm
+    fig, axes = plt.subplots(2, 1, figsize=(10, 7), sharex=True)
+    for r in untrained_runs:
+        axes[0].plot(r["do_traj"], color="#e34a33", alpha=0.7,
+                      label=f"untrained seed={r['seed']}")
+    for r in trained_runs:
+        axes[0].plot(r["do_traj"], color="#31a354", alpha=0.85,
+                      label=f"trained seed={r['seed']}")
+    axes[0].axhline(20, color="grey", linestyle="--", label="DO_min_safe=20%")
+    axes[0].set_ylabel("Dissolved O2 %")
+    axes[0].set_title(f"Trained vs untrained Qwen-3B on {task_id} (n={len(seeds)})")
+    axes[0].legend(loc="lower right", fontsize=8, ncol=2)
+    axes[0].grid(alpha=0.3)
+
+    # Total-reward bar chart underneath
+    arms, vals_mean, vals_std = [], [], []
+    if untrained_runs:
+        arms.append("untrained")
+        vals_mean.append(_avg(untrained_runs, "total_reward"))
+        vals_std.append(float(np.std([r["total_reward"] for r in untrained_runs])))
+    arms.append("trained")
+    vals_mean.append(_avg(trained_runs, "total_reward"))
+    vals_std.append(float(np.std([r["total_reward"] for r in trained_runs])))
+    axes[1].bar(arms, vals_mean, yerr=vals_std, capsize=5,
+                 color=["#e34a33", "#31a354"][: len(arms)])
+    axes[1].set_ylabel(f"Mean total reward (n={len(seeds)})")
+    axes[1].set_title("Episode reward")
+    axes[1].grid(alpha=0.3, axis="y")
+
+    fig.tight_layout()
+    plot_path = output_dir / "before_after_demo.png"
+    fig.savefig(plot_path, dpi=120, bbox_inches="tight")
+    plt.close(fig)
+
+    # Save metrics JSON
+    metrics_path = output_dir / "eval_metrics.json"
+    metrics_path.write_text(json.dumps(metrics, indent=2))
+    print(f"[eval] saved {plot_path} and {metrics_path}", flush=True)
+    print(f"[eval] summary: trained={metrics['trained']['do_above_floor_pct_mean']:.1f}%  "
+          f"untrained={metrics['untrained']['do_above_floor_pct_mean']:.1f}%  "
+          f"(do_above_floor)", flush=True)
+    return metrics
+
+
+def _upload_artifacts_to_hub(repo_id: str, files: list[Path], token: str) -> None:
+    """Upload each file to the same model repo as the adapter."""
+    from huggingface_hub import HfApi  # type: ignore
+    api = HfApi(token=token)
+    for f in files:
+        if not f.exists():
+            print(f"[upload] skip missing {f}")
+            continue
+        try:
+            api.upload_file(
+                path_or_fileobj=str(f),
+                path_in_repo=f.name,
+                repo_id=repo_id,
+                repo_type="model",
+                commit_message=f"add {f.name} from training run",
+            )
+            print(f"[upload] -> {repo_id}/{f.name}")
+        except Exception as e:
+            print(f"[upload] failed for {f.name}: {e}")
 
 
 def main() -> None:
@@ -87,6 +294,15 @@ def main() -> None:
                         help="If set, push the LoRA adapter to this HF model repo.")
     parser.add_argument("--wandb_project", default="bioperator-env")
     parser.add_argument("--wandb_run_name", default=None)
+    parser.add_argument("--eval_seeds", default="1,4,5,7,42",
+                        help="Comma-separated seeds for end-of-training eval. "
+                             "Defaults are env seeds where the random/passive "
+                             "baselines actually push DO toward the safety "
+                             "floor on do-recovery-medium (probed 2026-04-26). "
+                             "Empty string disables eval.")
+    parser.add_argument("--eval_task", default="do-recovery-medium",
+                        help="Scenario for end-of-training eval.")
+    parser.add_argument("--eval_temperature", type=float, default=0.5)
     args = parser.parse_args()
 
     # 1) Get the repo on PYTHONPATH
@@ -187,12 +403,16 @@ def main() -> None:
             except Exception as e:
                 print(f"[run_grpo_job] push_to_hub failed: {e}")
 
-    # 8) Plot reward curve
+    # 8) Plot training reward curve
+    ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+    reward_curve_path = ARTIFACTS_DIR / "reward_curve.png"
+    log_history_path = ARTIFACTS_DIR / "training_log_history.json"
     try:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         log = trainer.state.log_history
+        log_history_path.write_text(json.dumps(log, indent=2, default=str))
         rewards = [(h["step"], h.get("reward")) for h in log if "reward" in h]
         if rewards:
             xs, ys = zip(*rewards)
@@ -202,14 +422,48 @@ def main() -> None:
             plt.ylabel("Mean reward")
             plt.title("BioOperatorEnv GRPO training reward")
             plt.grid(alpha=0.3)
-            out = REPO_DIR / "results" / "reward_curve.png"
-            out.parent.mkdir(parents=True, exist_ok=True)
-            plt.savefig(out, dpi=120, bbox_inches="tight")
-            print(f"[run_grpo_job] reward curve saved to {out}")
+            plt.savefig(reward_curve_path, dpi=120, bbox_inches="tight")
+            plt.close()
+            print(f"[run_grpo_job] reward curve saved to {reward_curve_path}")
     except Exception as e:
         print(f"[run_grpo_job] reward-curve plot skipped: {e}")
 
-    print("[run_grpo_job] DONE")
+    # 9) End-of-training eval: trained vs adapter-disabled (untrained) on same seeds
+    eval_metrics = None
+    if args.eval_seeds.strip():
+        try:
+            seeds = [int(s) for s in args.eval_seeds.split(",") if s.strip()]
+            print(f"[run_grpo_job] running eval: task={args.eval_task} seeds={seeds}",
+                  flush=True)
+            eval_metrics = _run_inline_eval(
+                model=model,
+                tokenizer=tokenizer,
+                task_id=args.eval_task,
+                seeds=seeds,
+                output_dir=ARTIFACTS_DIR,
+                eval_temperature=args.eval_temperature,
+            )
+        except Exception as e:
+            print(f"[run_grpo_job] eval skipped: {type(e).__name__}: {e}", flush=True)
+    else:
+        print("[run_grpo_job] --eval_seeds empty; skipping inline eval")
+
+    # 10) Push artifacts (reward curve, before/after plot, eval metrics) to the
+    #     same Hub repo as the adapter.
+    if args.push_to_hub and os.environ.get("HF_TOKEN"):
+        artifact_files = [
+            reward_curve_path,
+            log_history_path,
+            ARTIFACTS_DIR / "before_after_demo.png",
+            ARTIFACTS_DIR / "eval_metrics.json",
+        ]
+        try:
+            _upload_artifacts_to_hub(args.push_to_hub, artifact_files,
+                                      os.environ["HF_TOKEN"])
+        except Exception as e:
+            print(f"[run_grpo_job] artifact upload failed: {e}", flush=True)
+
+    print("[run_grpo_job] DONE", flush=True)
 
 
 if __name__ == "__main__":
