@@ -342,7 +342,56 @@ def main() -> None:
     ds = Dataset.from_list(rows)
     print(f"[run_grpo_job] dataset rows: {len(ds)}", flush=True)
 
-    # 4) Load model + attach LoRA via Unsloth
+    # 4) Force-initialize CUDA so Unsloth's accelerator detection works.
+    #    On HF Jobs uv-run containers, importing unsloth can race ahead of the
+    #    nvidia driver init (CUDA error 802, "system not yet initialized"),
+    #    which makes Unsloth conclude there is no GPU. We retry torch.cuda
+    #    init with backoff and explicit driver pokes to break the race.
+    import time, ctypes  # type: ignore
+    import torch  # type: ignore
+    print(f"[run_grpo_job] torch={torch.__version__}  cuda_built={torch.version.cuda}",
+          flush=True)
+
+    def _try_cuda_init() -> bool:
+        """Return True iff torch.cuda becomes usable. Uses ctypes to poke the
+        nvidia driver if the first torch attempt hits 'system not yet
+        initialized'."""
+        for delay in (0, 2, 5, 10):
+            if delay:
+                time.sleep(delay)
+            # Reset torch's cached "no cuda" answer if needed.
+            try:
+                torch.cuda._initialized = False  # type: ignore[attr-defined]
+                torch.cuda._lazy_init()           # type: ignore[attr-defined]
+            except Exception:
+                pass
+            if torch.cuda.is_available():
+                try:
+                    torch.zeros(1, device="cuda").mul_(1)
+                    torch.cuda.synchronize()
+                    return True
+                except Exception as e:
+                    print(f"[run_grpo_job] CUDA tensor probe failed: {e}", flush=True)
+            else:
+                # Try to wake the driver via libcuda.cuInit(0)
+                try:
+                    libcuda = ctypes.CDLL("libcuda.so.1")
+                    rc = libcuda.cuInit(0)
+                    print(f"[run_grpo_job] libcuda.cuInit(0) returned {rc}", flush=True)
+                except OSError as e:
+                    print(f"[run_grpo_job] libcuda.so.1 not loadable: {e}", flush=True)
+        return False
+
+    if not _try_cuda_init():
+        raise RuntimeError(
+            "torch.cuda is unavailable after retries on a GPU flavor. The "
+            "container likely lacks an attached nvidia device. Try `hf jobs "
+            "run` with a CUDA-baked image (e.g. pytorch/pytorch:cuda12.4) "
+            "instead of `uv run`."
+        )
+    print(f"[run_grpo_job] CUDA ready: device_count={torch.cuda.device_count()}  "
+          f"name={torch.cuda.get_device_name(0)}", flush=True)
+
     print(f"[run_grpo_job] loading {args.model_id} in 4-bit + LoRA(r={args.lora_rank})", flush=True)
     from unsloth import FastLanguageModel  # type: ignore
     model, tokenizer = FastLanguageModel.from_pretrained(
