@@ -220,7 +220,8 @@ tests/                  107 tests, all green
 - **Calibration report:** [`docs/calibration/calibration_report.md`](docs/calibration/calibration_report.md)
 - **Original simulator paper:** Goldrick et al., *J. Biotech* 2015. [DOI: 10.1016/j.jbiotec.2014.10.029](https://doi.org/10.1016/j.jbiotec.2014.10.029)
 - **HF Space (live):** [`Json604/openenv-bioreactor`](https://huggingface.co/spaces/Json604/openenv-bioreactor) — direct API at `https://Json604-openenv-bioreactor.hf.space`
-- **Training W&B run:** [`personal-meta/bioperator-env/runs/1ycts2ex`](https://wandb.ai/personal-meta/bioperator-env/runs/1ycts2ex) — the 200-step H200 run shown in the reward curve above. Per-step metrics, profiling timing, and config all on wandb.
+- **Trained LoRA adapter:** [`Json604/qwen3b-bioperator-lora`](https://huggingface.co/Json604/qwen3b-bioperator-lora) — Qwen 2.5 3B + LoRA(r=16) trained on `do-recovery-easy` for 200 GRPO steps; loadable via `peft.PeftModel.from_pretrained` on top of the Qwen 2.5 3B-Instruct base.
+- **Training W&B runs:** [`1ycts2ex`](https://wandb.ai/personal-meta/bioperator-env/runs/1ycts2ex) (the H200 run shown in the reward curve above, the canonical submission evidence) and [`9esapohi`](https://wandb.ai/personal-meta/bioperator-env/runs/9esapohi) (the supplementary post-submission a10g re-verification — see Postscript in `Blog.md`).
 
 ---
 
