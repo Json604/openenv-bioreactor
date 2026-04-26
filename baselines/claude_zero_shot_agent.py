@@ -20,7 +20,7 @@ from bioperator_env.prompt import SYSTEM_PROMPT, build_prompt
 class ClaudeZeroShotAgent:
     name = "claude_zero_shot"
 
-    def __init__(self, model: str = "claude-sonnet-4-6",
+    def __init__(self, model: str = "claude-opus-4-7",
                  max_tokens: int = 256, temperature: float = 0.5):
         self.model = model
         self.max_tokens = max_tokens
@@ -39,13 +39,17 @@ class ClaudeZeroShotAgent:
     def act(self, obs: BioOperatorObservation) -> dict:
         self._ensure_client()
         prompt = build_prompt(obs, system=SYSTEM_PROMPT)
+        # Opus 4.7 deprecates the `temperature` field; pass it only on
+        # models that still accept it (anything except Opus 4.7+).
+        kwargs = {
+            "model": self.model,
+            "max_tokens": self.max_tokens,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        if not self.model.startswith("claude-opus-4-7"):
+            kwargs["temperature"] = self.temperature
         try:
-            resp = self._client.messages.create(
-                model=self.model,
-                max_tokens=self.max_tokens,
-                temperature=self.temperature,
-                messages=[{"role": "user", "content": prompt}],
-            )
+            resp = self._client.messages.create(**kwargs)
             text = resp.content[0].text if resp.content else ""
         except Exception as e:
             text = f"<error: {e}>"

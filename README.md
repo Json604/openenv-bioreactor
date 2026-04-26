@@ -103,15 +103,22 @@ I did **not** invent a new bioreactor model. I **ported the validated MATLAB Ind
 
 ## Baseline results
 
-I compared three lightweight baselines (no LLM yet) on `do-recovery-medium`, 5 seeds each:
+I compared four baselines on `do-recovery-medium`, 5 seeds each (env seeds {1,4,5,7,42}, picked because the random agent's chaos manifests on those):
 
 ![Baseline bar chart](results/baseline_comparison_bar.png)
+
+| Agent | Mean episode reward (n=5) | What it does |
+|---|---|---|
+| `fixed_recipe` | ~23.1 | Never moves the controls — the natural floor |
+| `random` | ~18.6 | Picks uniformly from the 27 valid actions |
+| `claude_zero_shot` (Opus 4.7) | ~14.9 | Frontier LLM, no training, prompt-only |
+| `rule_based` | ~13.0 | Hand-written if-then operator logic |
 
 The DO trajectories tell the story:
 
 ![DO trajectory comparison](results/do_recovery_trajectory_comparison.png)
 
-A **random** policy (chaotic JSON) regularly slams DO down toward the 20% safety floor. The fixed-recipe (do-nothing) baseline cruises. The naive **rule-based operator** over-corrects — a sign that "intervene aggressively at every alarm" is *worse* than doing nothing. The trained LLM's job is to learn when to intervene and when to leave the plant alone.
+**The headline finding from the baselines alone:** even zero-shot Claude Opus 4.7 — the strongest available frontier model — does *worse* than doing nothing on this scenario. It writes 100% valid JSON and keeps DO above the safety floor, but it intervenes too often, and the control-effort penalty piles up. The naive rule-based operator behaves the same way for the same reason. *Intervening aggressively at every alarm is worse than leaving the plant alone.* The trained LLM operator's job is to learn when to act and when to wait.
 
 ## Tasks
 
