@@ -54,6 +54,10 @@ Each new bioprocess will still need its own plant adapter — fed-batch fermenta
 
 The environment, the training notebooks, the calibration report, and the baseline results are all in the [README](./README.md) and the [Hugging Face Space](https://huggingface.co/spaces/Json604/openenv-bioreactor).
 
+## Postscript: what may change in the repository after the submission deadline
+
+Late on submission day I attempted a fresh GRPO run on an H200 instance for faster wall-clock training. That flavor hit a CUDA initialization error inside the Hugging Face Jobs container that day and never reached the training loop, so at 16:55 IST I resubmitted the same script on an A10G GPU — purely to re-verify reproducibility on a different node. **The reward curve and artifacts shown above, and committed at submission time, are from the verified and complete training run that this submission stands on (W&B run [`1ycts2ex`](https://wandb.ai/personal-meta/bioperator-env/runs/1ycts2ex), 200 GRPO steps, finished, 83 minutes on H200 earlier the same day).** Anything pushed to this repository after 17:00 IST on 26 April 2026 is supplementary verification and does not change what was submitted.
+
 ## References
 
 - Goldrick, S., Stefan, A., Lovett, D., Montague, G., Lennox, B. (2015). *The development of an industrial-scale fed-batch fermentation simulation.* Journal of Biotechnology, 193, 70–82. — the validated penicillin simulator (IndPenSim) that this environment ports to Python.
