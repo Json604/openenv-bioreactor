@@ -26,15 +26,20 @@ Submit via:
 
     hf auth login
     hf jobs uv run \\
-        --gpu A100-80GB \\
-        --secrets WANDB_API_KEY=<your_wandb_key> \\
-        --secrets HF_TOKEN=<your_hf_write_token> \\
+        --flavor a100-large \\
+        -s WANDB_API_KEY=<your_wandb_key> \\
+        -s HF_TOKEN \\
         https://github.com/Json604/openenv-bioreactor/raw/main/training/run_grpo_job.py \\
-        -- \\
         --max_steps=200 \\
         --num_generations=8 \\
         --max_completion_length=256 \\
         --push_to_hub=Json604/qwen3b-bioperator-lora
+
+`--flavor` follows HF Spaces hardware naming. Run `hf jobs hardware` for
+the full list. `-s HF_TOKEN` with no value reuses the token from
+`hf auth login`. Script args go directly after the URL (no `--` needed;
+hf jobs uv run treats the script URL as positional and everything after
+as SCRIPT_ARGS).
 
 The script clones the repo into a temp dir, builds the dataset, loads the
 model + LoRA, runs GRPO, saves the adapter, and (optionally) pushes the

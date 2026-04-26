@@ -22,11 +22,10 @@ Get a [HF write token](https://huggingface.co/settings/tokens) if you want the t
 
 ```bash
 hf jobs uv run \
-    --gpu A100-80GB \
-    --secrets WANDB_API_KEY=<your_wandb_key> \
-    --secrets HF_TOKEN=<your_hf_write_token> \
+    --flavor a100-large \
+    -s WANDB_API_KEY=<your_wandb_key> \
+    -s HF_TOKEN \
     https://github.com/Json604/openenv-bioreactor/raw/main/training/run_grpo_job.py \
-    -- \
     --max_steps=200 \
     --num_generations=8 \
     --max_completion_length=256 \
@@ -37,15 +36,22 @@ hf jobs uv run \
 
 The job clones the repo, builds the dataset, trains GRPO, saves the LoRA adapter, and pushes it to `https://huggingface.co/Json604/qwen3b-bioperator-lora`.
 
-### GPU choice
+Notes:
+- `--flavor` (not `--gpu`) follows HF Spaces hardware naming. See `hf jobs hardware` for the full list.
+- `-s HF_TOKEN` (no `=value`) reuses the token from `hf auth login`. Convenient and avoids pasting tokens.
+- Script args go directly after the URL — no `--` separator required.
 
-| GPU | $/hr | Full 200-step training | Recommended for |
+### Flavor choice
+
+`--flavor` accepts the HF Spaces hardware names. The relevant ones for GRPO training:
+
+| Flavor | $/hr | Full 200-step training | Recommended for |
 |---|---|---|---|
-| `T4-small` | ~$0.50 | ~3 h | smoke tests |
-| `L4` | ~$1 | ~1.5 h | budget |
-| `A10G-large` | ~$1.50 | ~1 h | balanced |
-| **`A100-80GB`** | **~$4** | **~30 min** | **headline run, ~$2 cost** |
-| `H100` | ~$8 | ~15 min | fastest iteration |
+| `t4-small` | ~$0.50 | ~3 h | smoke tests |
+| `l4x1` | ~$1 | ~1.5 h | budget |
+| `a10g-large` | ~$1.50 | ~1 h | balanced |
+| **`a100-large`** | **~$4** | **~30 min** | **headline run, ~$2 cost** |
+| `h200` | ~$8 | ~15 min | fastest iteration |
 
 ### Monitor
 
