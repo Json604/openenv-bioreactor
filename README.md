@@ -1,13 +1,3 @@
----
-title: BioOperatorEnv
-emoji: "🧪"
-colorFrom: blue
-colorTo: green
-sdk: docker
-app_port: 7860
-pinned: false
----
-
 # BioOperatorEnv
 
 **An OpenEnv-compatible training environment for language models that operate an industrial penicillin bioreactor.**
