@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10,<3.13"
 # dependencies = [
-#     "torch>=2.3",
+#     "torch>=2.3,<2.7",
 #     "transformers>=4.46",
 #     "peft>=0.11",
 #     "trl>=0.10",
@@ -19,6 +19,14 @@
 #     "matplotlib>=3.8",
 #     "tqdm>=4.66",
 # ]
+#
+# [[tool.uv.index]]
+# name = "pytorch-cu124"
+# url = "https://download.pytorch.org/whl/cu124"
+# explicit = true
+#
+# [tool.uv.sources]
+# torch = { index = "pytorch-cu124" }
 # ///
 """Self-contained GRPO training job for HF Jobs.
 
