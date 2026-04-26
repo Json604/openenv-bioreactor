@@ -210,7 +210,6 @@ tests/                  107 tests, all green
 - **Calibration report:** [`docs/calibration/calibration_report.md`](docs/calibration/calibration_report.md)
 - **Original simulator paper:** Goldrick et al., *J. Biotech* 2015. [DOI: 10.1016/j.jbiotec.2014.10.029](https://doi.org/10.1016/j.jbiotec.2014.10.029)
 - **HF Space (live):** [`Json604/openenv-bioreactor`](https://huggingface.co/spaces/Json604/openenv-bioreactor) — direct API at `https://Json604-openenv-bioreactor.hf.space`
-- **Trained LoRA adapter:** [`Json604/qwen3b-bioperator-lora`](https://huggingface.co/Json604/qwen3b-bioperator-lora) — GRPO-trained on H200, includes reward curve, before/after demo plot, and full eval metrics.
 - **Training W&B run:** [`personal-meta/bioperator-env/runs/1ycts2ex`](https://wandb.ai/personal-meta/bioperator-env/runs/1ycts2ex) — the 200-step H200 run shown in the reward curve above. Per-step metrics, profiling timing, and config all on wandb.
 
 ---
