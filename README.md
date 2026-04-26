@@ -210,8 +210,8 @@ tests/                  107 tests, all green
 - **Calibration report:** [`docs/calibration/calibration_report.md`](docs/calibration/calibration_report.md)
 - **Original simulator paper:** Goldrick et al., *J. Biotech* 2015. [DOI: 10.1016/j.jbiotec.2014.10.029](https://doi.org/10.1016/j.jbiotec.2014.10.029)
 - **HF Space (live):** [`Json604/openenv-bioreactor`](https://huggingface.co/spaces/Json604/openenv-bioreactor) — direct API at `https://Json604-openenv-bioreactor.hf.space`
-- **Training W&B run:** *(populate after the first GRPO run on Colab)*
-- **2-min video:** *(populate after recording)*
+- **Trained LoRA adapter:** [`Json604/qwen3b-bioperator-lora`](https://huggingface.co/Json604/qwen3b-bioperator-lora) — GRPO-trained on H200, includes reward curve, before/after demo plot, and full eval metrics.
+- **Training W&B run:** [`personal-meta/bioperator-env/runs/3ux8xvxh`](https://wandb.ai/personal-meta/bioperator-env/runs/3ux8xvxh)
 
 ---
 
