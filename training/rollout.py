@@ -63,27 +63,70 @@ def env_to_snapshot(env: BioOperatorEnv) -> EnvSnapshot:
     )
 
 
+def _is_critical(obs) -> bool:
+    """A snapshot is 'critical' (action choice matters) when:
+       - an alarm is active, OR
+       - DO is below the safe floor + 5% buffer, OR
+       - substrate is outside the healthy band, OR
+       - DO trend is falling_fast.
+    Calm middle-of-batch states get filtered out so GRPO doesn't waste
+    rollouts on prompts where any action gives ~the same reward.
+    """
+    if obs.alarm:
+        return True
+    DO = obs.measurements.get("dissolved_oxygen_pct", 100.0)
+    DO_min = obs.setpoints_or_limits.get("DO_min_safe_pct", 20.0)
+    if DO < DO_min + 5.0:
+        return True
+    S = obs.measurements.get("substrate_g_L", 0.15)
+    S_min = obs.setpoints_or_limits.get("substrate_min_g_L", 0.05)
+    S_max = obs.setpoints_or_limits.get("substrate_max_g_L", 0.30)
+    if S < S_min or S > S_max:
+        return True
+    if obs.recent_trends.get("DO") in ("falling_fast", "falling"):
+        return True
+    return False
+
+
 def build_dataset(num_samples: int = 256,
                   task_ids: Optional[Iterable[str]] = None,
                   steps_per_episode_skip: int = 5,
-                  seed: int = 0) -> list[dict]:
+                  seed: int = 0,
+                  critical_only: bool = True,
+                  fallback_calm_ratio: float = 0.2) -> list[dict]:
     """Generate `num_samples` (prompt, snapshot) rows for GRPO training.
+
+    `critical_only=True` (default) filters to snapshots where an alarm is
+    active, DO is near the floor, substrate is outside the band, or DO is
+    falling. This is essential for GRPO learning: at calm states all
+    actions produce ~identical rewards, so within-group variance collapses
+    to zero and gradients vanish.
+
+    A small `fallback_calm_ratio` of calm states is still allowed to keep
+    the dataset diverse (so the model also learns to emit no-op when
+    nothing's happening).
 
     Each row: {
         "prompt": str,
         "snapshot_json": str,    # JSON-serialized EnvSnapshot
         "task_id": str,
+        "is_critical": bool,
     }
     """
     rng = random.Random(seed)
     tasks = list(task_ids) if task_ids else [t for t in list_tasks() if t != "normal-baseline"]
     rows = []
-    while len(rows) < num_samples:
+    calm_collected = 0
+    target_calm = int(num_samples * fallback_calm_ratio) if critical_only else num_samples
+
+    attempts = 0
+    max_attempts = num_samples * 50   # bound search to avoid infinite loops
+    while len(rows) < num_samples and attempts < max_attempts:
+        attempts += 1
         task = rng.choice(tasks)
         ep_seed = rng.randint(0, 1_000_000)
         env = BioOperatorEnv(task_id=task, seed=ep_seed)
         obs = env.reset()
-        # Sample a step uniformly within the episode
         steps_to_take = rng.randint(0, env.spec.max_steps - 1)
         for _ in range(steps_to_take):
             obs, _, done, _ = env.step({"feed_delta_L_h": 0,
@@ -93,9 +136,41 @@ def build_dataset(num_samples: int = 256,
                 break
         if env.step_count >= env.spec.max_steps:
             continue
+
+        critical = _is_critical(obs)
+        if critical_only:
+            if not critical:
+                if calm_collected >= target_calm:
+                    continue
+                calm_collected += 1
+
         rows.append({
             "prompt": build_prompt(obs),
             "snapshot_json": json.dumps(env_to_snapshot(env).__dict__),
             "task_id": task,
+            "is_critical": critical,
         })
+
+    if attempts >= max_attempts and len(rows) < num_samples:
+        # Hit the search ceiling. Fall back to fully unfiltered to top up.
+        while len(rows) < num_samples:
+            task = rng.choice(tasks)
+            ep_seed = rng.randint(0, 1_000_000)
+            env = BioOperatorEnv(task_id=task, seed=ep_seed)
+            obs = env.reset()
+            steps_to_take = rng.randint(0, env.spec.max_steps - 1)
+            for _ in range(steps_to_take):
+                obs, _, done, _ = env.step({"feed_delta_L_h": 0,
+                                             "aeration_delta_vvm": 0.0,
+                                             "agitation_delta_rpm": 0})
+                if done:
+                    break
+            if env.step_count >= env.spec.max_steps:
+                continue
+            rows.append({
+                "prompt": build_prompt(obs),
+                "snapshot_json": json.dumps(env_to_snapshot(env).__dict__),
+                "task_id": task,
+                "is_critical": _is_critical(obs),
+            })
     return rows
