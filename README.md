@@ -120,6 +120,16 @@ The DO trajectories tell the story:
 
 **The headline finding from the baselines alone:** even zero-shot Claude Opus 4.7 — the strongest available frontier model — does *worse* than doing nothing on this scenario. It writes 100% valid JSON and keeps DO above the safety floor, but it intervenes too often, and the control-effort penalty piles up. The naive rule-based operator behaves the same way for the same reason. *Intervening aggressively at every alarm is worse than leaving the plant alone.* The trained LLM operator's job is to learn when to act and when to wait.
 
+## Training run
+
+GRPO fine-tuning of Qwen 2.5 3B-Instruct + LoRA(r=16) on `do-recovery-easy`, run on a single H200 via Hugging Face Jobs (200 optimization steps, 64-prompt critical-snapshot dataset, 8 generations per prompt, KL-regularized policy gradient with `beta=0.04`). Full config and seven-component reward live in [`training/run_grpo_job.py`](training/run_grpo_job.py).
+
+![Reward curve](results/reward_curve.png)
+
+*Mean group reward and KL-regularized loss across 200 GRPO steps. Reward stays in the 0.40–0.46 band — the loop runs end-to-end, but at this small scale (200 steps × 64 prompts on a 3B base) the policy doesn't yet break out of the seven-component reward's local equilibrium. A larger run (more steps, more prompts, optionally the next stage of the curriculum) is the next step.*
+
+The wandb run for this curve, with all per-step metrics, profiling timing, and config, is linked below in the Links section.
+
 ## Tasks
 
 | Task ID | Difficulty | Scenario |
@@ -211,7 +221,7 @@ tests/                  107 tests, all green
 - **Original simulator paper:** Goldrick et al., *J. Biotech* 2015. [DOI: 10.1016/j.jbiotec.2014.10.029](https://doi.org/10.1016/j.jbiotec.2014.10.029)
 - **HF Space (live):** [`Json604/openenv-bioreactor`](https://huggingface.co/spaces/Json604/openenv-bioreactor) — direct API at `https://Json604-openenv-bioreactor.hf.space`
 - **Trained LoRA adapter:** [`Json604/qwen3b-bioperator-lora`](https://huggingface.co/Json604/qwen3b-bioperator-lora) — GRPO-trained on H200, includes reward curve, before/after demo plot, and full eval metrics.
-- **Training W&B run:** [`personal-meta/bioperator-env/runs/hjw8uy55`](https://wandb.ai/personal-meta/bioperator-env/runs/hjw8uy55)
+- **Training W&B run:** [`personal-meta/bioperator-env/runs/1ycts2ex`](https://wandb.ai/personal-meta/bioperator-env/runs/1ycts2ex) — the 200-step H200 run shown in the reward curve above. Per-step metrics, profiling timing, and config all on wandb.
 
 ---
 
