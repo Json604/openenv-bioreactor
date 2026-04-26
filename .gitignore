@@ -24,3 +24,6 @@ hack_instructions.md
 
 # HF rejects binaries here:
 IndPenSim/*.pdf
+
+# Local Claude Code config
+.claude/

@@ -1,0 +1,41 @@
+# Training language models to run a bioreactor
+
+*A submission to the OpenEnv Hackathon, India 2026.*
+
+It is hour 180 of a 230-hour run inside a 100,000-liter industrial fermenter. Inside the tank, a few thousand kilograms of penicillin-producing fungus are alive and metabolizing — eating sugar, breathing oxygen, building product. On the operator's screen, the dissolved-oxygen reading begins to drift down. Twenty-two percent. Twenty-one. The safety floor is twenty.
+
+The operator has minutes to decide. Cut the sugar feed and the cells will starve. Add more air or stir faster and they may recover, but push too hard and the foaming gets out of hand. Get this sequence wrong twice in a row and a multi-week batch — worth more than a million dollars in product and lost plant capacity — is gone.
+
+This is the kind of decision a sufficiently capable language model should, in principle, be able to help with. The state of the plant is a few dozen numbers and trends. The action is small — adjust the feed, adjust the air, adjust the agitator. The objective is well-defined. And yet, no current LLM has been trained to make this kind of decision well, and the reason has very little to do with intelligence.
+
+The reason is that there is nowhere for one to practice. Real bioreactors are slow, expensive, and unforgiving. You cannot let a model learn by ruining real batches. You cannot give it a thousand attempts on a real plant. Until there is a place for a language model to act, fail, and be corrected at low cost, no amount of clever prompting will close the gap.
+
+Previous papers built better autopilots. I built the simulator where future autonomous bioreactor operators learn the job.
+
+The work was deliberately not to invent a new bioreactor model. The bioprocess engineering literature has spent decades calibrating simulators of fed-batch fermentations — runs in which fresh sugar is added gradually during production rather than dumped in once at the start — and a 2015 paper by Goldrick and colleagues is widely treated as the standard reference for industrial penicillin. It ships with a detailed mathematical model: a system of 33 differential equations that describe how the cell biomass, the available sugar, the dissolved oxygen, the carbon dioxide produced, the fluid volume, and the rest of the plant state evolve over time.
+
+I ported that simulator from MATLAB to Python and verified that the port reproduces the published trajectories on the same batch. The calibration overlay is in the repository.
+
+From there, the question was what an agent should be allowed to see and do. The decision I made was strict: only what a real plant operator sees on a SCADA-style console — current measurements, recent trends, alarm flags, and the last action taken. The agent never sees the 33-dimensional state vector underneath. This matters. A model that reads the underlying equations directly is not learning to operate a plant; it is learning to fit a known function. Every twelve simulated minutes, the agent reads the console and outputs a small JSON object — a feed adjustment, an aeration adjustment, an agitation adjustment, and an optional short reason. Temperature and pH stay on automatic underneath, the way they do in a real plant.
+
+What the agent is rewarded for is the part most worth getting right. A single scalar reward — for example, "how much penicillin did you make" — would be easy for a model to game. It might learn to push aeration to the limit and accept dangerous oxygen drops because the productivity number rose anyway. Reinforcement learning is famously good at finding shortcuts that satisfy the letter of a reward without the spirit of it.
+
+So I split the reward into seven independent components. One watches whether the JSON output is well-formed and in range. One watches whether dissolved oxygen stays above the safety floor. One watches whether penicillin is actually growing. One watches whether the available sugar stays in its healthy band. One watches whether temperature and pH remain near their setpoints. One penalizes wild swings in the controls. The last rewards the total amount of penicillin produced by the end of the batch. They are computed and logged independently. If the model finds a shortcut on any one of them, the other six pull it back, and the per-component log makes the shortcut visible immediately.
+
+In a small training run — two hundred optimization steps using GRPO on a three-billion-parameter open model, fine-tuned through a low-rank adapter rather than full retraining — the trained operator kept dissolved oxygen above the safety floor about twenty percent more often than the untrained one. That gap is small in absolute terms, and it should be. The point of the run was not to ship a finished operator. It was to confirm that the environment, the rewards, and the training loop produce a signal a model can actually learn from. They do.
+
+Reinforcement learning is not new to bioprocess control, and I want to be honest about the lineage this work sits inside. A recent line of research applies deep reinforcement learning to fed-batch penicillin built on the same IndPenSim simulator (Li, Qiu and You, 2024), to pH control in a real industrial photobioreactor (Gil and colleagues, 2025), to temperature control in ethanol fermentation (Rajasekhar and colleagues, 2024), and to yeast cultivation under partial supervision (Pandian and Noel, 2018). I drew on this lineage. What makes the present work different is not the plant — penicillin has been studied before — but the agent and the interface. The prior systems train task-specific neural controllers that read state vectors and emit continuous control signals. The thing being trained here is a language model, reading an operator's console and emitting JSON, learning from a reward that is split across seven components precisely so it cannot be gamed by maximizing one of them.
+
+Each new bioprocess will still need its own plant adapter — fed-batch fermentations are how the world makes a large share of its antibiotics, biologics, vaccines, and industrial enzymes, and each has its own equations and faults — but the interface generalizes. Operator-style observations rather than raw physics, a small structured action vocabulary, composable rewards designed to resist gaming, a validated simulator underneath, and a training loop that produces a signal an LLM can learn from. The interesting question is not whether my agent got measurably better at penicillin in two hundred training steps. The interesting question is whether language models can eventually be trained to operate slow, dangerous, expensive physical systems, given somewhere to practice. This work is one early data point in favor of yes.
+
+---
+
+The environment, the training notebooks, the calibration report, and the baseline results are all in the [README](./README.md) and the [Hugging Face Space](https://huggingface.co/spaces/Json604/openenv-bioreactor).
+
+## References
+
+- Goldrick, S., Stefan, A., Lovett, D., Montague, G., Lennox, B. (2015). *The development of an industrial-scale fed-batch fermentation simulation.* Journal of Biotechnology, 193, 70–82. — the validated penicillin simulator (IndPenSim) that this environment ports to Python.
+- Li, H., Qiu, T., You, F. (2024). *AI-based optimal control of fed-batch biopharmaceutical process leveraging deep reinforcement learning.* Chemical Engineering Science. — DRL applied to fed-batch penicillin control on IndPenSim.
+- Gil, J. D., Del Rio Chanona, E. A., Guzmán, J. L., Berenguel, M. (2025). *Reinforcement learning meets bioprocess control through behaviour cloning: Real-world deployment in an industrial photobioreactor.* arXiv preprint. — RL pH control, deployed on a physical photobioreactor.
+- Rajasekhar, N., et al. (2024). *Reinforcement learning based temperature control of a fermentation bioreactor for ethanol production.* — RL temperature control for ethanol fermentation.
+- Pandian, J. B., Noel, M. M. (2018). *Control of a bioreactor using a new partially supervised reinforcement learning algorithm.* Journal of Process Control. — partially supervised RL on a yeast bioreactor.

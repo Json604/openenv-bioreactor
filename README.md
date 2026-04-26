@@ -10,7 +10,7 @@ pinned: false
 
 # BioOperatorEnv
 
-**A flight simulator for autonomous bioreactor operators.**
+**An OpenEnv-compatible training environment for language models that operate an industrial penicillin bioreactor.**
 
 OpenEnv Hackathon India 2026 · Theme: *World Modeling / Professional Tasks*
 
@@ -18,13 +18,15 @@ OpenEnv Hackathon India 2026 · Theme: *World Modeling / Professional Tasks*
 
 ## Why this exists
 
-Real bioreactors are alive. They brew medicines like penicillin in tanks the size of a small house. They are slow, expensive, dangerous to mistakes, and quality-sensitive. **You cannot let an AI agent learn by ruining real batches.**
+Industrial bioreactors brew medicines like penicillin in tanks the size of a small house. They are slow, expensive, dangerous to mistakes, and quality-sensitive. **You cannot let an AI agent learn by ruining real batches.**
 
-So we built the practice rink.
+So I built the environment in which one can.
 
-BioOperatorEnv takes a **published industrial penicillin simulator** (IndPenSim by Goldrick et al., *Journal of Biotechnology* 2015 — the gold-standard reference for fed-batch fermentation modeling) and turns it into an OpenEnv-compatible environment where an LLM can read a SCADA-style plant console, output a structured JSON control action, and learn — through GRPO + LoRA — to run the reactor better than untrained baselines.
+BioOperatorEnv takes a **published industrial penicillin simulator** (IndPenSim by Goldrick et al., *Journal of Biotechnology* 2015 — the standard reference for fed-batch fermentation modeling), ports it from MATLAB to Python, and wraps it in an OpenEnv-compatible interface where a language model can read a SCADA-style plant console, output a structured JSON control action, and learn — through GRPO with a low-rank adapter — to run the reactor better than untrained baselines.
 
-> Previous papers built better autopilots for one bioprocess controller at a time. We're building the simulator where future autonomous bioreactor operators learn to fly.
+> Previous papers built better autopilots. I built the simulator where future autonomous bioreactor operators learn the job.
+
+For the long-form story-led writeup, see [`Blog.md`](./Blog.md).
 
 ---
 
@@ -93,7 +95,7 @@ Reward is **deliberately split into 7 independent components** so the model can'
 
 ## The plant engine
 
-We did **not** invent a new bioreactor model. We **ported the validated MATLAB IndPenSim simulator to Python** and verified the port reproduces the published trajectories.
+I did **not** invent a new bioreactor model. I **ported the validated MATLAB IndPenSim simulator to Python** and verified the port reproduces the published trajectories.
 
 ![Python port vs MATLAB calibration](docs/calibration/python_vs_matlab.png)
 
@@ -101,7 +103,7 @@ We did **not** invent a new bioreactor model. We **ported the validated MATLAB I
 
 ## Baseline results
 
-We compared three lightweight baselines (no LLM yet) on `do-recovery-medium`, 5 seeds each:
+I compared three lightweight baselines (no LLM yet) on `do-recovery-medium`, 5 seeds each:
 
 ![Baseline bar chart](results/baseline_comparison_bar.png)
 
@@ -190,11 +192,12 @@ tests/                  107 tests, all green
 ## Limitations
 
 - This is one specific bioprocess (penicillin fed-batch at 100,000 L). Each new process needs its own plant adapter.
-- The MATLAB `mu_x` saturation rule (`indpensim.m §194-200`) is not yet ported, which causes our late-batch yields to overshoot MATLAB by ~25%. Documented in the calibration report.
+- The MATLAB `mu_x` saturation rule (`indpensim.m §194-200`) is not yet ported, which causes the late-batch yields to overshoot MATLAB by ~25%. Documented in the calibration report.
 - Real deployment to a physical reactor would require validation, regulatory review, and human supervision — far beyond this hackathon's scope.
 
 ## Links
 
+- **Blog post (story-led writeup):** [`Blog.md`](./Blog.md)
 - **Spec:** [`docs/superpowers/specs/2026-04-26-bioperatorenv-design.md`](docs/superpowers/specs/2026-04-26-bioperatorenv-design.md)
 - **Implementation plan:** [`docs/superpowers/plans/2026-04-26-bioperatorenv.md`](docs/superpowers/plans/2026-04-26-bioperatorenv.md)
 - **Calibration report:** [`docs/calibration/calibration_report.md`](docs/calibration/calibration_report.md)
@@ -205,4 +208,4 @@ tests/                  107 tests, all green
 
 ---
 
-*BioOperatorEnv: previous papers built better autopilots. We built the simulator where future autonomous bioreactor operators learn to fly.*
+*BioOperatorEnv: previous papers built better autopilots. I built the simulator where future autonomous bioreactor operators learn the job.*
