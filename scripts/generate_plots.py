@@ -68,7 +68,11 @@ def _load_all_baseline_csvs(task_id: str = "do-recovery-medium") -> "pd.DataFram
 
 
 def baseline_bar_chart() -> None:
-    """Mean reward + mean safety violations per agent on do-recovery-medium."""
+    """One clear bar chart: mean total episode reward per agent on
+    do-recovery-medium, with value labels and rotated x-labels so nothing
+    gets cut off. The empty 'safety violations' panel is dropped because
+    no baseline ever hits the 5% critical floor — the surrounding text
+    explains that already."""
     df = _load_all_baseline_csvs()
     if df.empty:
         print("  no baseline CSVs found; skipping bar chart")
@@ -77,31 +81,47 @@ def baseline_bar_chart() -> None:
     summary = (df.groupby("agent")
                   .agg(mean_reward=("total_reward", "mean"),
                        std_reward=("total_reward", "std"),
-                       mean_safety=("safety_violations", "mean"),
                        n=("seed", "count"))
                   .reset_index())
-    # Stable ordering: known agents first (in canonical order), unknown after.
     summary["sort_key"] = summary["agent"].apply(
         lambda a: _AGENT_ORDER.index(a) if a in _AGENT_ORDER else len(_AGENT_ORDER))
     summary = summary.sort_values("sort_key").drop(columns="sort_key")
 
     colors = [_AGENT_COLORS.get(a, "#999999") for a in summary["agent"]]
+    pretty = {
+        "random": "random",
+        "fixed_recipe": "fixed_recipe\n(do nothing)",
+        "rule_based": "rule_based\n(if-then logic)",
+        "claude_zero_shot": "Claude\nOpus 4.7",
+        "untrained_qwen": "Qwen-3B\nuntrained",
+        "trained_qwen": "Qwen-3B\ntrained",
+    }
+    labels = [pretty.get(a, a) for a in summary["agent"]]
 
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4.5))
-    axes[0].bar(summary["agent"], summary["mean_reward"],
-                yerr=summary["std_reward"], capsize=5, color=colors)
-    axes[0].set_title("Mean episode reward (do-recovery-medium)")
-    axes[0].set_ylabel("Sum of per-step rewards")
-    axes[0].tick_params(axis="x", labelrotation=20)
-    axes[0].grid(alpha=0.3, axis="y")
+    fig, ax = plt.subplots(figsize=(10, 5.5))
+    bars = ax.bar(labels, summary["mean_reward"],
+                   yerr=summary["std_reward"], capsize=5,
+                   color=colors, edgecolor="white", linewidth=0.5)
+    ax.set_ylabel("Mean total episode reward (higher = better)", fontsize=11)
+    ax.set_title(f"Baseline comparison on do-recovery-medium  (n={int(summary['n'].iloc[0])} seeds each)",
+                  fontsize=12)
+    ax.set_ylim(0, max(summary["mean_reward"]) * 1.18)
+    ax.grid(alpha=0.3, axis="y")
+    ax.set_axisbelow(True)
 
-    axes[1].bar(summary["agent"], summary["mean_safety"], color=colors)
-    axes[1].set_title("Mean safety violations per episode")
-    axes[1].set_ylabel("count")
-    axes[1].tick_params(axis="x", labelrotation=20)
-    axes[1].grid(alpha=0.3, axis="y")
+    # Value labels on top of each bar
+    for bar, val in zip(bars, summary["mean_reward"]):
+        ax.text(bar.get_x() + bar.get_width() / 2,
+                 val + max(summary["mean_reward"]) * 0.02,
+                 f"{val:.1f}", ha="center", fontsize=10, fontweight="bold")
 
-    fig.suptitle(f"BioOperatorEnv baselines (n={int(summary['n'].iloc[0])} seeds each)")
+    # Annotation: the headline finding
+    ax.axhline(summary[summary["agent"] == "fixed_recipe"]["mean_reward"].iloc[0]
+                if "fixed_recipe" in summary["agent"].values else 0,
+                color="grey", linestyle="--", linewidth=1, alpha=0.6,
+                label="fixed_recipe = do-nothing baseline")
+    ax.legend(loc="upper right", fontsize=9, framealpha=0.9)
+
     fig.tight_layout()
     out = RESULTS / "baseline_comparison_bar.png"
     fig.savefig(out, dpi=120, bbox_inches="tight")
@@ -174,15 +194,37 @@ def trajectory_comparison(seed: int = 42) -> None:
             "aer": np.array(aer_t), "rpm": np.array(rpm_t),
         }
 
-    # DO trajectory plot
-    fig, ax = plt.subplots(figsize=(9, 4.5))
+    # DO trajectory plot — emphasise the random-policy dips, label them
+    fig, ax = plt.subplots(figsize=(10, 5))
+    style = {
+        "fixed_recipe": ("#2b8cbe", "-",  2.0, "fixed_recipe (do nothing)"),
+        "rule_based":   ("#31a354", "--", 2.0, "rule_based (if-then)"),
+        "random":       ("#e34a33", "-",  2.0, "random policy"),
+    }
     for name, t in traces.items():
-        ax.plot(t["do"], label=name, linewidth=2)
-    ax.axhline(20, color="grey", linestyle="--", label="DO_min_safe=20%")
-    ax.set_xlabel("Episode step (12 sim min each)")
-    ax.set_ylabel("Dissolved oxygen %")
-    ax.set_title(f"DO trajectory: do-recovery-medium (seed={seed})")
-    ax.legend()
+        c, ls, lw, lbl = style[name]
+        ax.plot(t["do"], label=lbl, color=c, linestyle=ls, linewidth=lw)
+
+    ax.axhline(20, color="grey", linestyle=":", linewidth=1.5,
+                label="safety floor (DO ≥ 20% required)")
+    ax.fill_between(range(len(traces["random"]["do"])), 0, 20,
+                     color="red", alpha=0.08, label="unsafe zone")
+
+    # Mark the random agent's dips below 30% (the visible "drama")
+    random_do = traces["random"]["do"]
+    dip_steps = [i for i, v in enumerate(random_do) if v < 30]
+    if dip_steps:
+        ax.annotate("random pushes DO toward the\nsafety floor at every chaos burst",
+                     xy=(dip_steps[0], random_do[dip_steps[0]]),
+                     xytext=(dip_steps[0] + 6, 55),
+                     fontsize=9, color="#a51a00",
+                     arrowprops=dict(arrowstyle="->", color="#a51a00", lw=1))
+
+    ax.set_xlabel("Episode step (one step = 12 simulated minutes)")
+    ax.set_ylabel("Dissolved oxygen (% of saturation)")
+    ax.set_title(f"What each baseline does on do-recovery-medium (seed={seed})")
+    ax.set_ylim(0, 105)
+    ax.legend(loc="lower right", fontsize=9, framealpha=0.95)
     ax.grid(alpha=0.3)
     fig.tight_layout()
     out = RESULTS / "do_recovery_trajectory_comparison.png"
