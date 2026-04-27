@@ -13,8 +13,14 @@ Components (per design spec §5.1):
     6. control_effort          [-1, 0]  small / smooth deltas?
     7. terminal_yield_bonus    [0, 1]   sparse, end-of-episode
 
-Default weights (sum to 0.90 for per-step; +0.10 terminal):
-    0.05 format + 0.30 do + 0.20 prod + 0.15 sub + 0.10 stab + 0.10 effort
+Default weights (rebalanced after the first GRPO run produced a flat
+reward curve: format_validity saturated at 1.0 from token zero on
+Qwen-Instruct, leaving 5% of the weight contributing zero gradient;
+control_effort at 0.10 was actively penalising the only useful action
+on DO-recovery states by ~0.05, often more than the do_safety bonus
+gained):
+    0.02 format + 0.45 do + 0.25 prod + 0.15 sub + 0.10 stab
+    + 0.02 effort + 0.10 terminal
 """
 from __future__ import annotations
 from dataclasses import dataclass
@@ -25,12 +31,12 @@ from .models import RewardComponents
 # ----- weights -----
 
 DEFAULT_WEIGHTS: dict[str, float] = {
-    "format_validity":      0.05,
-    "do_safety":            0.30,
-    "productivity":         0.20,
+    "format_validity":      0.02,
+    "do_safety":            0.45,
+    "productivity":         0.25,
     "substrate_control":    0.15,
     "stability":            0.10,
-    "control_effort":       0.10,
+    "control_effort":       0.02,
     "terminal_yield_bonus": 0.10,
 }
 
